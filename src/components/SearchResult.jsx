@@ -1,5 +1,5 @@
-/* eslint-disable react/prop-types */
 import { Card, CardContent, Typography, IconButton, Stack, Tooltip } from '@mui/material';
+import PropTypes from 'prop-types';
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 
@@ -37,6 +37,13 @@ const SearchResult = ({ label, temps, isFavorite, onAddFavorite }) => {
       </CardContent>
     </Card>
   );
+};
+
+SearchResult.propTypes = {
+  label: PropTypes.string.isRequired,
+  temps: PropTypes.object,
+  isFavorite: PropTypes.func,
+  onAddFavorite: PropTypes.func,
 };
 
 export default SearchResult;

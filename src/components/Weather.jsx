@@ -1,29 +1,66 @@
 import { useEffect, useState } from 'react';
 import { Box, Typography, CircularProgress } from '@mui/material';
-import fetchWeather from '../api/weatherApi';
+import fetchWeather, { NetworkError } from '../api/weatherApi';
+import { loadWeather, saveWeather, formatSavedAt } from '../api/weatherCache';
+import useConnectionStatus from '../hooks/useConnectionStatus';
 import PropTypes from 'prop-types';
 
 const Weather = ({ location = 'Santiago de Chile' }) => {
-  const [weather, setWeather] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [weather, setWeather] = useState(null);   // datos del clima
+  const [savedAt, setSavedAt] = useState(null);   // hora de la lectura, si viene del caché
+  const [loading, setLoading] = useState(true);   // estado de carga
+  const [error, setError] = useState('');         // mensaje de error
+  const [status] = useConnectionStatus();
+
+  // El efecto se vuelve a ejecutar cuando la conexión cae y cuando vuelve, de
+  // modo que al recuperar la red la lectura guardada se reemplaza sola por una
+  // consulta nueva a la API.
+  const disconnected = status === 'offline';
 
   useEffect(() => {
-    let isMounted = true;
+    // React apaga esta bandera en el return de abajo, y ejecuta esa limpieza
+    // antes de volver a correr el efecto. Así, si la conexión cambia mientras
+    // una petición está en vuelo, la respuesta que llegue tarde no pisa el
+    // estado que dejó la ejecución más reciente: solo la vigente escribe.
+    let current = true;
+
     (async () => {
       try {
         setLoading(true);
         setError('');
-        const data = await fetchWeather(location);
-        if (isMounted) setWeather(data);
-      } catch {
-        if (isMounted) setError('No se pudo cargar el clima.');
+        const temps = await fetchWeather(location);
+
+        if (!current) return;
+
+        if (temps) {
+          saveWeather(location, temps);
+          setWeather(temps);
+          setSavedAt(null);
+        } else {
+          setError('No se pudo cargar el clima.');
+        }
+      } catch (e) {
+        if (!current) return;
+
+        // Falló la red. Si hay una lectura guardada para esta ciudad la
+        // mostramos, señalando de cuándo es; si no hay nada, solo queda avisar.
+        const cached = e instanceof NetworkError ? loadWeather(location) : null;
+
+        if (cached) {
+          setWeather(cached.weather);
+          setSavedAt(cached.savedAt);
+        } else if (e instanceof NetworkError) {
+          setError('Sin conexión, y no hay información guardada de esta ciudad.');
+        } else {
+          setError('No se pudo cargar el clima.');
+        }
       } finally {
-        if (isMounted) setLoading(false);
+        if (current) setLoading(false);
       }
     })();
-    return () => { isMounted = false; };
-  }, [location]);
+
+    return () => { current = false; };
+  }, [location, disconnected]);
 
   if (loading) {
     return (
@@ -45,7 +82,6 @@ const Weather = ({ location = 'Santiago de Chile' }) => {
   if (!weather) return null;
 
   const {
-    label,                // "Santiago, Región Metropolitana, Chile" (según tu API)
     temp,                 // actual
     tempMinForecast,      // mínima pronosticada hoy
     tempMaxForecast,      // máxima pronosticada hoy
@@ -61,16 +97,17 @@ const Weather = ({ location = 'Santiago de Chile' }) => {
 
   return (
     <Box>
-      {/* Título de la tarjeta (puedes ocultarlo si prefieres usar sólo el header de la card) */}
-      {label && (
-        <Typography variant="h6" component="h2" gutterBottom>
-          {label}
-        </Typography>
-      )}
-
       <Typography variant="body1"><strong>Actual:</strong> {fmt(temp)}</Typography>
       <Typography variant="body1"><strong>Máxima:</strong> {fmt(maxToday)}</Typography>
       <Typography variant="body1"><strong>Mínima:</strong> {fmt(minToday)}</Typography>
+
+      {/* Solo cuando el dato viene del caché: el aviso de que no hay conexión
+          lo da ConnectionStatus, y lo que falta acá es de cuándo es el dato. */}
+      {savedAt !== null && (
+        <Typography variant="caption" component="p" color="text.secondary" sx={{ mt: 1.5 }}>
+          Última actualización: {formatSavedAt(savedAt)}.
+        </Typography>
+      )}
     </Box>
   );
 };

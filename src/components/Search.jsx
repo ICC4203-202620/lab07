@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Autocomplete, Box, TextField, Button, Typography } from '@mui/material';
 import useLocalStorageState from 'use-local-storage-state';
 import SearchIcon from '@mui/icons-material/Search';
-import { fetchWeatherMulti } from '../api/weatherApi';
+import { fetchWeatherMulti, NetworkError } from '../api/weatherApi';
+import useConnectionStatus from '../hooks/useConnectionStatus';
 import SearchResult from './SearchResult';
 import PropTypes from 'prop-types';
 
@@ -18,25 +19,55 @@ function Search({ isFavorite, onAddFavorite }) {
     defaultValue: []
   });
 
+  const [status] = useConnectionStatus();
+
+  // Buscar exige red: la geocodificación de una ciudad nueva no se puede
+  // resolver con lo que haya guardado. Por eso el efecto depende del estado de
+  // la conexión, y repite la búsqueda pendiente en cuanto la red vuelve.
+  const disconnected = status === 'offline';
+
   useEffect(() => {
+    // Igual que en Weather: si la conexión cambia con una búsqueda en vuelo,
+    // esta bandera impide que la respuesta atrasada pise el estado que dejó la
+    // ejecución más reciente del efecto.
+    let current = true;
+
     const run = async () => {
       setLoading(true);
       setError('');
       setResults([]);
-      const arr = await fetchWeatherMulti(query);
-      if (arr.length) {
-        setResults(arr);
-        if (query && !keywordList.includes(query)) {
-          setKeywordList([...keywordList, query]);
+
+      try {
+        const arr = await fetchWeatherMulti(query);
+
+        if (!current) return;
+
+        if (arr.length) {
+          setResults(arr);
+          if (query && !keywordList.includes(query)) {
+            setKeywordList([...keywordList, query]);
+          }
+        } else {
+          setError('No se encontraron ubicaciones para tu búsqueda.');
         }
-      } else {
-        setError('No se encontraron ubicaciones para tu búsqueda.');
+      } catch (e) {
+        if (!current) return;
+
+        if (e instanceof NetworkError) {
+          setError('Sin conexión: no es posible buscar ciudades nuevas. Las que ya agregaste a Inicio siguen disponibles.');
+        } else {
+          setError('Ocurrió un error al realizar la búsqueda.');
+        }
+      } finally {
+        if (current) setLoading(false);
       }
-      setLoading(false);
     };
+
     if (query) run();
+
+    return () => { current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query, disconnected]);
 
   const handleSearch = () => {
     const trimmed = inputValue.trim();

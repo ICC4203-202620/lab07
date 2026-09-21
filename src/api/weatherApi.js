@@ -1,5 +1,39 @@
 import axios from 'axios';
 
+/*
+ * Error de conectividad: la petición nunca obtuvo respuesta de Open-Meteo.
+ *
+ * Se distingue de "la ciudad no existe" (que las funciones de este módulo
+ * señalan devolviendo null o un arreglo vacío) porque la aplicación reacciona
+ * distinto en cada caso: ante un problema de red muestra la última lectura
+ * guardada, y ante una ciudad inexistente le pide al usuario que corrija la
+ * búsqueda.
+ */
+export class NetworkError extends Error {
+  constructor(cause) {
+    super('No hubo respuesta de Open-Meteo');
+    this.name = 'NetworkError';
+    this.cause = cause;
+  }
+}
+
+/*
+ * Envoltorio de axios.get: es el único lugar del módulo que conoce la forma en
+ * que axios reporta una falla de red, de modo que el resto del código trabaja
+ * con NetworkError y no con los detalles de la biblioteca.
+ */
+async function get(url, config) {
+  try {
+    return await axios.get(url, config);
+  } catch (err) {
+    // axios deja sin `response` a las peticiones que nunca llegaron a destino:
+    // sin conexión, DNS caído, timeout. Un 404 o un 500 sí traen respuesta, y
+    // ahí el problema no es la conectividad.
+    if (axios.isAxiosError(err) && !err.response) throw new NetworkError(err);
+    throw err;
+  }
+}
+
 /** Normalize helper for comparisons (remove diacritics, lowercase, trim) */
 const norm = (s) =>
   s?.toString().normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim() || '';
@@ -40,7 +74,7 @@ async function geocodeMany(input) {
 
   // 1) intento con parsing inteligente
   const { params, adminRaw } = buildGeocodeParams(input);
-  const resp1 = await axios.get(url, {
+  const resp1 = await get(url, {
     params,
     validateStatus: () => true,
   });
@@ -50,7 +84,7 @@ async function geocodeMany(input) {
   // 2) fallback sin coma: primera parte del input
   if (!results.length) {
     const simple = input.split(',')[0].trim();
-    const resp2 = await axios.get(url, {
+    const resp2 = await get(url, {
       params: { name: simple, count: 10, language: 'es', format: 'json' },
       validateStatus: () => true,
     });
@@ -93,7 +127,7 @@ async function fetchWeatherForLocation({ latitude, longitude, timezone }) {
     daily: 'temperature_2m_min,temperature_2m_max',
   };
 
-  const { data } = await axios.get(url, { params });
+  const { data } = await get(url, { params });
 
   // Current
   const temp = data?.current?.temperature_2m ?? null;
@@ -162,22 +196,31 @@ export async function fetchWeatherMulti(query) {
     if (!locs.length) return [];
 
     // Fetch en paralelo
-    const tempsArr = await Promise.all(
+    const settled = await Promise.all(
       locs.map((loc) =>
         fetchWeatherForLocation(loc)
-          .then((t) => ({ ok: true, t }))
-          .catch(() => ({ ok: false, t: null }))
+          .then((temps) => ({ temps }))
+          .catch((err) => ({ err }))
       )
     );
 
+    // Si la red se cortó a mitad de camino, el problema no es que la ciudad no
+    // exista, y quien llamó necesita saberlo para mostrar lo que tenga guardado.
+    const networkFailure = settled.find(({ err }) => err instanceof NetworkError);
+    if (networkFailure) throw networkFailure.err;
+
     // Merge location + temps y filtra fallidos
     const results = locs
-      .map((loc, i) => ({ location: loc, temps: tempsArr[i].t }))
+      .map((loc, i) => ({ location: loc, temps: settled[i].temps }))
       .filter((x) => x.temps != null);
 
     // Ya vienen ordenados por población (geocodeMany los ordena)
     return results;
   } catch (err) {
+    // NetworkError viaja hacia arriba; el resto se registra y se trata como
+    // "no hubo resultados".
+    if (err instanceof NetworkError) throw err;
+
     console.error('fetchWeatherMulti failed:', err);
     return [];
   }

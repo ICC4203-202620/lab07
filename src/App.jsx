@@ -6,6 +6,7 @@ import HomeIcon from '@mui/icons-material/Home';
 import SearchIcon from '@mui/icons-material/Search';
 import Home from './components/Home';
 import Search from './components/Search';
+import ConnectionStatus from './components/ConnectionStatus';
 
 function App() {
   // Favorites persisted
@@ -46,6 +47,7 @@ function App() {
         </Toolbar>
       </AppBar>
       <Toolbar />
+      <ConnectionStatus />
       <Container maxWidth="md">
         <Routes>
           <Route path="/" element={<Home favorites={favorites} removeFavorite={removeFavorite} />} />

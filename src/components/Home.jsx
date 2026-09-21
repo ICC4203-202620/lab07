@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   Box,
   Card,
@@ -39,13 +39,16 @@ function Home({ favorites, removeFavorite }) {
     }
   }, [favorites.length]);
 
-  const scrollByAmount = useMemo(() => {
-    if (!scrollerRef.current) return 600;
-    return Math.floor(scrollerRef.current.clientWidth * 0.9);
-  }, [scrollerRef.current]);
+  // El ancho visible del carrusel se mide en el momento del click, no durante
+  // el render: `scrollerRef.current` es null en el primer render y cambiarlo no
+  // provoca uno nuevo, de modo que un useMemo se quedaría con el valor inicial.
+  const scrollByAmount = () => {
+    const el = scrollerRef.current;
+    return el ? Math.floor(el.clientWidth * 0.9) : 600;
+  };
 
-  const goLeft = () => scrollerRef.current?.scrollBy({ left: -scrollByAmount, behavior: 'smooth' });
-  const goRight = () => scrollerRef.current?.scrollBy({ left: scrollByAmount, behavior: 'smooth' });
+  const goLeft = () => scrollerRef.current?.scrollBy({ left: -scrollByAmount(), behavior: 'smooth' });
+  const goRight = () => scrollerRef.current?.scrollBy({ left: scrollByAmount(), behavior: 'smooth' });
 
   // Drag-to-scroll (desktop/mouse)
   const dragging = useRef(false);
