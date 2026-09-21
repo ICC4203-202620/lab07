@@ -48,13 +48,19 @@ const dateFormat = new Intl.DateTimeFormat('es-CL', {
 
 // Devuelve la antigüedad de una lectura en palabras: "hace 5 minutos",
 // "hoy a las 14:32", "el 3 de septiembre, 08:15".
-export function formatSavedAt(savedAt) {
+//
+// El "ahora" contra el que se compara entra por parámetro en vez de leerse de
+// Date.now() acá adentro. Así la función es pura —mismos argumentos, mismo
+// resultado— y, sobre todo, el componente puede hacerla recalcular pasándole un
+// reloj que avanza (ver el hook useNow). Con Date.now() escondido adentro, el
+// texto solo cambiaría cuando algo más provocara un render.
+export function formatSavedAt(savedAt, now = Date.now()) {
   const date = new Date(savedAt);
-  const minutes = Math.round((Date.now() - savedAt) / 60000);
+  const minutes = Math.round((now - savedAt) / 60000);
 
   if (minutes < 1) return 'hace instantes';
   if (minutes < 60) return relativeFormat.format(-minutes, 'minute');
-  if (date.toDateString() === new Date().toDateString()) {
+  if (date.toDateString() === new Date(now).toDateString()) {
     return `hoy a las ${hourFormat.format(date)}`;
   }
   return `el ${dateFormat.format(date)}`;

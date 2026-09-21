@@ -916,3 +916,142 @@ Los scripts relevantes son:
 * `preview`: Permite previsualizar la aplicación después que ha sido construida con `build`.
 
 En `vite.config.js` hay una única opción agregada respecto de la configuración por defecto: `build.manifest`, que deja en `dist/assets-manifest.json` la lista de archivos generados con sus nombres definitivos. Es la lista que el service worker lee al instalarse, como se explicó más arriba.
+
+---
+
+# Solución
+
+Esta rama (`solution`) contiene el código de main más los ejercicios resueltos. Úsala como referencia después de intentarlos, no antes: el valor del laboratorio está en equivocarse primero.
+
+Los ejercicios 1 a 4 y el 7 están implementados. El 5 y el 6 son de observación —no producen código— y se comentan al final.
+
+## 1. Botón para limpiar el historial
+
+En `src/components/Search.jsx`. El botón vive en un `Stack` junto al de buscar, y se renderiza condicionalmente:
+
+```jsx
+{keywordList.length > 0 && (
+  <Button variant="outlined" color="secondary" onClick={handleClearHistory} ...>
+    Limpiar historial
+  </Button>
+)}
+```
+
+`handleClearHistory` es una línea: `setKeywordList([])`. Como `keywordList` viene de `useLocalStorageState`, vaciar el arreglo borra también lo guardado en `localStorage`, sin que el componente tenga que tocar esa API.
+
+Que el botón **no exista** cuando no hay nada que limpiar es deliberado. La alternativa sería mostrarlo deshabilitado; se prefiere ocultarlo porque un control permanentemente gris no le enseña nada al usuario sobre cuándo se activará. La regla práctica: deshabilita cuando la acción estará disponible pronto y el usuario puede provocarlo (el botón *Buscar* mientras `loading`), y oculta cuando la acción sencillamente no aplica.
+
+## 2. `useReducer` en `Search`
+
+También en `src/components/Search.jsx`. El componente pasó de cinco `useState` a un solo `useReducer`.
+
+**El estado.** Se agregó un campo que no estaba en la versión con `useState`:
+
+```js
+const initialState = {
+  inputValue: '', query: '', results: [], loading: false, error: '',
+  offline: false,   // ¿el error actual se debe a la falta de red?
+};
+```
+
+**Las acciones.** `SET_INPUT`, `START_SEARCH`, `SEARCH_SUCCESS`, `SEARCH_ERROR`, `NETWORK_ERROR` y `RESET`.
+
+El punto que conviene entender es **por qué `NETWORK_ERROR` merece ser una acción propia** y no un `SEARCH_ERROR` con otro texto. Porque el estado resultante es distinto en dos aspectos:
+
+* Conserva `query`. Como el efecto depende también del estado de la conexión, dejar la consulta en pie hace que se repita sola cuando la red vuelve. Un `SEARCH_ERROR` normal describe una búsqueda que ya terminó.
+* Levanta `offline`, y con eso la interfaz presenta el mensaje en un `Alert severity="info"` en vez del texto rojo de error. No es un error del usuario y no debería verse como tal.
+
+Ese es el criterio general para decidir si algo es una acción nueva: **no es "cambia otro texto", es "el estado queda distinto"**.
+
+**`RESET` sí se usa.** Se despacha cuando el usuario vacía el campo de texto:
+
+```js
+const handleInputChange = (value) => {
+  dispatch({ type: ACTIONS.SET_INPUT, payload: value });
+  if (!value.trim()) dispatch({ type: ACTIONS.RESET });
+};
+```
+
+Esto corrige de paso un defecto de la versión con `useState`: como `RESET` deja `query` en `''`, buscar dos veces seguidas el mismo término vuelve a funcionar. Antes, `setQuery('Lima')` con `query` ya igual a `'Lima'` no cambiaba nada y el efecto no se ejecutaba.
+
+**El `default` del reducer lanza una excepción** en vez de devolver `state`. Con un `return state` silencioso, una acción mal escrita no hace nada y el error aparece más tarde, lejos de su causa.
+
+**Lo que no cambió.** El efecto conserva la bandera `current` y la dependencia del estado de la conexión. `useReducer` organiza el estado; no reemplaza el manejo de las condiciones de carrera.
+
+## 3. Hook `useWeather(location)`
+
+Archivo nuevo: `src/hooks/useWeather.js`. Contiene el `useEffect` completo que antes vivía en `Weather`, con la consulta a la API, el respaldo en caché y las cuatro variables de estado. El componente quedó reducido a JSX: pide los datos en una línea y se dedica a mostrarlos.
+
+```es6
+const { weather, savedAt, loading, error } = useWeather(location);
+```
+
+Dos decisiones de diseño:
+
+**Devuelve un objeto, no un arreglo.** `useConnectionStatus` devuelve un arreglo siguiendo la convención de `useState`, que conviene con dos valores cuando quien llama quiere ponerles el nombre que prefiera. Con cuatro campos de nombre fijo, el objeto se lee mejor en el destructuring y permite agregar un quinto campo más adelante sin romper a nadie que ya lo use.
+
+**El hook llama a otro hook.** `useWeather` usa `useConnectionStatus` internamente. Los hooks se componen igual que las funciones normales, y el resultado es que `Weather` ya no necesita saber que en algún lugar hay un par de `addEventListener` sobre `window`. Cada capa esconde un detalle más.
+
+Fíjate en lo que **no** se movió al hook: `formatSavedAt` y el JSX. El hook se queda con el estado y los efectos; la presentación es asunto del componente.
+
+## 4. Hook `useNow(intervalMs)`
+
+Archivo nuevo: `src/hooks/useNow.js`. Devuelve la hora actual y la refresca con `setInterval`, con su `clearInterval` en la función de limpieza.
+
+El ejercicio tiene una segunda mitad que no es obvia: **no basta con tener la hora, hay que hacer que el cálculo la use**. `formatSavedAt` leía `Date.now()` internamente, de modo que aunque el componente se re-renderizara, el texto se recalculaba con un reloj que el componente no controlaba. La firma cambió a:
+
+```es6
+export function formatSavedAt(savedAt, now = Date.now())
+```
+
+Con el parámetro por defecto, el resto del código que la llamaba con un solo argumento sigue funcionando. La función además queda **pura**: con los mismos argumentos devuelve siempre lo mismo, lo que la hace trivial de probar.
+
+En `Weather`:
+
+```es6
+const now = useNow(savedAt === null ? 0 : TICK);
+```
+
+El hook se llama **siempre**, porque las reglas de los hooks no admiten llamarlo dentro de un `if`. Lo que sí puede hacer es no hacer nada: con intervalo `0` no arma ningún temporizador. Sin fecha en pantalla no hay nada que refrescar, y con varias tarjetas montadas los intervalos inútiles se suman.
+
+**Al probarlo**, ten presente que los navegadores *limitan* (*throttle*) los temporizadores de las pestañas que no están visibles, típicamente a uno por minuto. Si dejas la pestaña de fondo y vuelves al rato, el texto se actualizará al volver, no mientras no mirabas. No es un error de tu código.
+
+## 7. Esquema de colores
+
+El color de la aplicación vive en tres archivos, y el ejercicio consiste en que los tres queden diciendo lo mismo:
+
+| archivo | qué pinta |
+| --- | --- |
+| `src/theme.js` | lo que dibuja React mientras la aplicación está abierta |
+| `index.html`, `<meta name="theme-color">` | la interfaz del navegador alrededor de la página |
+| `public/manifest.webmanifest` | la aplicación instalada: barra de estado y pantalla de carga |
+
+La paleta nueva usa `#1b6ca8` como primario, declarado una sola vez en una constante y reutilizado en la personalización de `MuiAppBar`, para que no haya dos literales que mantener sincronizados a mano.
+
+Se aprovechó de corregir tres cosas:
+
+* **Contraste.** `#569de3` con texto blanco encima daba una razón de contraste de 2.8:1, bajo el 4.5:1 que pide WCAG AA para texto normal. `#1b6ca8` llega a 5.6:1.
+* **`default` y `paper` estaban invertidos.** `background.default` es el fondo de la página y `background.paper` el de las superficies que se apoyan encima (`Card`, `Menu`, `Dialog`). El tema original tenía página blanca y tarjetas grises, de modo que las tarjetas se hundían en lugar de levantarse.
+* **Faltaba `CssBaseline`.** Esta es la trampa del ejercicio: `palette.background.default` **no se aplica solo**. Es `CssBaseline` quien lo lleva al `<body>`, junto con la normalización de estilos del navegador. Sin él puedes cambiar el color cuanto quieras en `theme.js` y no pasará nada. Ahora `main.jsx` lo monta dentro de `ThemeProvider`.
+
+Nota también el cambio menor en `Search.jsx`, donde un `bgcolor: 'white'` escrito a mano pasó a `bgcolor: 'background.paper'`. Un color literal dentro de un componente es un color que el tema no puede cambiar.
+
+Para ver el cambio en la aplicación **instalada** hay que reinstalarla: el manifiesto solo se relee cuando el navegador vuelve a buscarlo.
+
+## 5 y 6: los ejercicios de observación
+
+Estos dos no tienen solución en código. El 5 no produce ningún artefacto, y el 6 pide deliberadamente romper algo.
+
+**5. Cambiar la versión del caché.** Al modificar `const CACHE = 'weather-app-v1'` a `'weather-app-v2'` en `public/sw.js` y reconstruir, lo que se observa en Cache Storage es:
+
+1. Al recargar, aparece un segundo caché, `weather-app-v2`, mientras el service worker nuevo se instala y precachea todo otra vez. Por un momento coexisten los dos.
+2. `weather-app-v1` desaparece cuando el service worker nuevo se activa, borrado por el `activate` que recorre `caches.keys()` y elimina todo lo que no sea `CACHE`.
+3. Las entradas `weather:<ciudad>` de Local Storage **no** se tocan. Son de la aplicación, no del service worker, y ese es justamente el punto de tenerlas separadas.
+
+En el panel Application verás además al service worker nuevo en estado *waiting* por un instante; no se queda ahí porque `install` llama a `self.skipWaiting()`.
+
+**6. Cachear Open-Meteo en el service worker.** No se implementa, a propósito, porque el ejercicio consiste en comprobar un anti-patrón y la rama de solución no debería contener código que contradiga el enunciado. Lo que ocurre si lo haces: la aplicación sigue mostrando datos sin conexión, y a primera vista parece que funciona **mejor**, porque desaparecen los mensajes de "sin información guardada".
+
+El problema es lo que se pierde. La petición ya no falla, de modo que `weatherApi` nunca lanza `NetworkError`, `Weather` nunca entra a su `catch`, `savedAt` se queda en `null` y la línea de "Última actualización" no aparece jamás. La aplicación muestra una temperatura de anteayer con el mismo aspecto que una de hace un minuto, y ni siquiera puede saber cuál es cuál.
+
+De ahí la separación que atraviesa todo el laboratorio: **el service worker guarda archivos, la aplicación guarda datos**. Un archivo con hash en el nombre es válido para siempre; una temperatura vale por minutos, y lo que el usuario necesita saber no es solo el número, sino de cuándo es.
