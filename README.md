@@ -13,15 +13,27 @@ Antes de partir, verifica tu versión de Node.js con `node -v`. Vite 8 requiere 
 El primer paso es ejecutar:
 
 ```sh
-yarn install
+yarn install    # o npm install
 ```
 
 Esto instalará todos los paquetes o módulos especificados en el archivo `package.json` que requiere la aplicación. Preferimos utilizar Yarn para gestión de módulos y dependencias de Javascript.
 
-Con esto, la aplicación estará lista para ejecutar:
+Si prefieres npm, sirve igual. La equivalencia es directa:
+
+| Yarn | npm |
+| --- | --- |
+| `yarn install` | `npm install` |
+| `yarn add <paquete>` | `npm install <paquete>` |
+| `yarn dev` | `npm run dev` |
+
+La última fila vale para cualquier script declarado en `package.json`: `build`, `lint` y `preview` se invocan igual, anteponiendo `npm run`. Los comandos del enunciado llevan su equivalente en un comentario, y donde no lo lleven basta con aplicar esa regla.
+
+Puedes usar npm sobre este repositorio sin problemas: como no hay un `package-lock.json`, npm lee `yarn.lock` e instala exactamente las mismas versiones que resolvió Yarn. Lo que conviene es elegir uno de los dos y quedarse con él, porque npm generará además su propio archivo de lock, y dos archivos de lock que se contradicen hacen que dos personas terminen con dependencias distintas.
+
+Con las dependencias instaladas, la aplicación está lista para ejecutar:
 
 ```sh
-yarn dev
+yarn dev    # o npm run dev
 ```
 
 El comando anterior ejecuta la aplicación en modo de desarrollo. Puedes abrir el navegador web en [http://localhost:5173/](http://localhost:5173/) para ver el funcionamiento.
@@ -203,7 +215,7 @@ En este ejemplo, `useAxios` gestiona automáticamente los estados de carga (`loa
 Este proyecto **no** usa `axios-hooks`: llama a axios directamente desde `src/api/weatherApi.js`, porque necesitamos controlar con precisión qué ocurre cuando una petición falla por falta de red (ver más abajo). Si quieres experimentar con la biblioteca, puedes instalarla con:
 
 ```sh
-yarn add axios-hooks
+yarn add axios-hooks    # o npm install axios-hooks
 ```
 
 ### Uso de Local Storage con Hooks
@@ -212,7 +224,7 @@ Hemos visto en clases, y en la lectura del libro The Road to React, la existenci
 `use-local-storage-state`, el cual puede ser instalado en un proyecto con:
 
 ```sh
-yarn add use-local-storage-state
+yarn add use-local-storage-state    # o npm install use-local-storage-state
 ```
 
 Ejemplo de uso:
@@ -866,8 +878,8 @@ Hay tres desenlaces posibles ante una falla, y cada uno le dice al usuario algo 
 El service worker no corre en modo desarrollo, de manera que hay que construir la aplicación y servirla:
 
 ```sh
-yarn build
-yarn preview
+yarn build      # o npm run build
+yarn preview    # o npm run preview
 ```
 
 Las herramientas de desarrollo organizan esto de manera distinta en cada navegador, así que conviene ubicar primero los tres lugares que vamos a usar:
